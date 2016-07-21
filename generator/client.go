@@ -85,6 +85,7 @@ func GenerateClient(name string, modelNames, operationIDs []string, opts GenOpts
 		Package:         mangleName(swag.ToFileName(opts.ClientPackage), "client"),
 		APIPackage:      mangleName(swag.ToFileName(opts.APIPackage), "api"),
 		ModelsPackage:   mangleName(swag.ToFileName(opts.ModelPackage), "definitions"),
+		GrpcPackage:     mangleName(swag.ToFileName(opts.GrpcPackage), "grpc"),
 		ServerPackage:   mangleName(swag.ToFileName(opts.ServerPackage), "server"),
 		ClientPackage:   mangleName(swag.ToFileName(opts.ClientPackage), "client"),
 		Principal:       opts.Principal,
@@ -186,6 +187,29 @@ func (c *clientGenerator) Generate() error {
 				errChan <- err
 			}
 		})
+
+		for _, scheme := range app.ExtraSchemes {
+			if scheme == "grpc" {
+				app.DefaultImports = []string{filepath.ToSlash(filepath.Join(baseImport(c.Target), c.ClientPackage))}
+
+				if app.Imports == nil {
+					app.Imports = make(map[string]string)
+				}
+				app.Imports["pb"] = filepath.ToSlash(filepath.Join(baseImport(c.Target), c.GrpcPackage))
+
+				if err := c.generateGRPCDefinition(&app); err != nil {
+					return err
+				}
+				if err := c.generateGRPCClientImpl(&app); err != nil {
+					return err
+				}
+				if c.GenOpts == nil || c.GenOpts.IncludeMain {
+					if err := c.generateGRPCClientMain(&app); err != nil {
+						return err
+					}
+				}
+			}
+		}
 	}
 
 	wg.Wait()
@@ -261,4 +285,31 @@ func (c *clientGenerator) generateEmbeddedSwaggerJSON(app *GenApp) error {
 
 	fp := filepath.Join(c.Target, c.ClientPackage)
 	return writeToFile(fp, swag.ToGoName(app.Name)+"EmbeddedSpec", buf.Bytes())
+}
+
+func (c *clientGenerator) generateGRPCClientImpl(app *GenApp) error {
+	buf := bytes.NewBuffer(nil)
+	if err := gRPCClientImplTemplate.Execute(buf, app); err != nil {
+		return err
+	}
+	log.Println("rendered gRPC client template:", app.Package+"."+swag.ToGoName(app.Name))
+
+	fp := filepath.Join(c.Target, c.ClientPackage)
+	return writeToFile(fp, swag.ToGoName(app.Name) + "Grpc", buf.Bytes())
+}
+
+func (c *clientGenerator) generateGRPCClientMain(app *GenApp) error {
+	fp := filepath.Join(c.Target, "cmd", swag.ToCommandName(swag.ToGoName(app.Name)+"Client"))
+	if fileExists(fp, "main") && !c.GenOpts.IncludeMain {
+		log.Println("skipped (already exists) main template:", app.Package+".Main")
+		return nil
+	}
+
+	buf := bytes.NewBuffer(nil)
+	if err := gRPCClientMainTemplate.Execute(buf, app); err != nil {
+		return err
+	}
+	log.Println("rendered gRPC client main template:", app.Package+"."+swag.ToGoName(app.Name))
+
+	return writeToFile(fp, "main", buf.Bytes())
 }

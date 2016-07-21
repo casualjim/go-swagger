@@ -34,6 +34,7 @@ import (
 
 const (
 	iface       = "interface{}"
+	pbAny 	    = "google.protobuf.Any"
 	array       = "array"
 	file        = "file"
 	number      = "number"
@@ -158,6 +159,52 @@ var typeMapping = map[string]string{
 	"file":       "runtime.File",
 }
 
+
+// typeMapping contains a mapping of format or type name to protobuf type
+var pbTypeMapping = map[string]string{
+	"byte":       "int32",
+	"date":       "string",
+	"datetime":   "string",
+	"date-time":  "string",
+	"uri":        "string",
+	"email":      "string",
+	"hostname":   "string",
+	"ipv4":       "string",
+	"ipv6":       "string",
+	"mac":        "string",
+	"uuid":       "string",
+	"uuid3":      "string",
+	"uuid4":      "string",
+	"uuid5":      "string",
+	"isbn":       "string",
+	"isbn10":     "string",
+	"isbn13":     "string",
+	"creditcard": "string",
+	"ssn":        "string",
+	"hexcolor":   "string",
+	"rgbcolor":   "string",
+	"duration":   "string",
+	"password":   "string",
+	"binary":     "bytes",
+	"char":       "string",
+	"int":        "int64",
+	"int8":       "int32",
+	"int16":      "int32",
+	"int32":      "int32",
+	"int64":      "int64",
+	"uint":       "uint64",
+	"uint8":      "uint32",
+	"uint16":     "uint32",
+	"uint32":     "uint32",
+	"uint64":     "uint64",
+	"float":      "float",
+	"double":     "double",
+	"number":     "double",
+	"integer":    "int64",
+	"boolean":    "bool",
+	"file":       "bytes",
+}
+
 // swaggerTypeMapping contains a mapping from go type to swagger type or format
 var swaggerTypeName map[string]string
 
@@ -177,6 +224,7 @@ func simpleResolvedType(tn, fmt string, items *spec.Items) (result resolvedType)
 		fmtn := strings.Replace(fmt, "-", "", -1)
 		if tpe, ok := typeMapping[fmtn]; ok {
 			result.GoType = tpe
+			result.PbType = pbTypeMapping[fmtn]
 			result.IsPrimitive = true
 			_, result.IsCustomFormatter = customFormatters[tpe]
 			result.IsStream = fmt == binary
@@ -186,6 +234,7 @@ func simpleResolvedType(tn, fmt string, items *spec.Items) (result resolvedType)
 
 	if tpe, ok := typeMapping[tn]; ok {
 		result.GoType = tpe
+		result.PbType = pbTypeMapping[tn]
 		_, result.IsPrimitive = primitives[tpe]
 		result.IsPrimitive = ok
 		return
@@ -198,13 +247,16 @@ func simpleResolvedType(tn, fmt string, items *spec.Items) (result resolvedType)
 		result.IsNullable = false
 		if items == nil {
 			result.GoType = "[]" + iface
+			result.PbType = "[]" + pbAny
 			return
 		}
 		res := simpleResolvedType(items.Type, items.Format, items.Items)
 		result.GoType = "[]" + res.GoType
+		result.PbType = "repeated " + res.PbType
 		return
 	}
 	result.GoType = tn
+	result.PbType = tn
 	_, result.IsPrimitive = primitives[tn]
 	return
 }
@@ -293,6 +345,7 @@ func (t *typeResolver) resolveSchemaRef(schema *spec.Schema, isRequired bool) (r
 		result = res
 
 		result.GoType = t.goTypeName(nm)
+		result.PbType = t.pbTypeName(nm)
 		result.HasDiscriminator = ref.Discriminator != ""
 		result.IsNullable = t.IsNullable(ref)
 		//result.IsAliased = true
@@ -307,6 +360,7 @@ func (t *typeResolver) inferAliasing(result *resolvedType, schema *spec.Schema, 
 		result.AliasedType = result.GoType
 		result.IsAliased = true
 		result.GoType = t.goTypeName(t.ModelName)
+		result.PbType = t.pbTypeName(t.ModelName)
 	}
 }
 
@@ -326,6 +380,7 @@ func (t *typeResolver) resolveFormat(schema *spec.Schema, isAnonymous bool, isRe
 			}
 			result.SwaggerFormat = schema.Format
 			result.GoType = tpe
+			result.PbType = pbTypeMapping[schFmt]
 			t.inferAliasing(&result, schema, isAnonymous, isRequired)
 			result.IsPrimitive = schFmt != binary
 			result.IsStream = schFmt == binary
@@ -376,6 +431,7 @@ func (t *typeResolver) resolveArray(schema *spec.Schema, isAnonymous, isRequired
 
 	if schema.Items == nil {
 		result.GoType = "[]" + iface
+		result.PbType = "repeated " + pbAny
 		result.SwaggerType = array
 		result.SwaggerFormat = ""
 		t.inferAliasing(&result, schema, isAnonymous, isRequired)
@@ -404,6 +460,7 @@ func (t *typeResolver) resolveArray(schema *spec.Schema, isAnonymous, isRequired
 	if rt.IsNullable && !strings.HasPrefix(rt.GoType, "*") {
 		result.GoType = "[]*" + rt.GoType
 	}
+	result.PbType = "repeated " + rt.PbType
 
 	result.ElemType = &rt
 	result.SwaggerType = array
@@ -423,6 +480,10 @@ func (t *typeResolver) goTypeName(nm string) string {
 	return swag.ToGoName(nm)
 }
 
+func (t *typeResolver) pbTypeName(nm string) string {
+	return swag.ToGoName(nm)
+}
+
 func (t *typeResolver) resolveObject(schema *spec.Schema, isAnonymous bool) (result resolvedType, err error) {
 	if Debug {
 		_, file, pos, _ := runtime.Caller(1)
@@ -435,9 +496,11 @@ func (t *typeResolver) resolveObject(schema *spec.Schema, isAnonymous bool) (res
 	if !isAnonymous {
 		result.SwaggerType = object
 		result.GoType = t.goTypeName(t.ModelName)
+		result.PbType = t.pbTypeName(t.ModelName)
 	}
 	if len(schema.AllOf) > 0 {
 		result.GoType = t.goTypeName(t.ModelName)
+		result.PbType = t.pbTypeName(t.ModelName)
 		result.IsComplexObject = true
 		var isNullable bool
 		for _, p := range schema.AllOf {
@@ -473,6 +536,7 @@ func (t *typeResolver) resolveObject(schema *spec.Schema, isAnonymous bool) (res
 		if et.IsNullable { //&& et.IsComplexObject && !et.IsBaseType {
 			result.GoType = "map[string]*" + et.GoType
 		}
+		result.PbType = "map<string, " + et.PbType + ">"
 		t.inferAliasing(&result, schema, isAnonymous, false)
 		result.ElemType = &et
 		return
@@ -482,6 +546,7 @@ func (t *typeResolver) resolveObject(schema *spec.Schema, isAnonymous bool) (res
 		return
 	}
 	result.GoType = iface
+	result.PbType = pbAny
 	result.IsMap = true
 	result.IsMap = !result.IsComplexObject
 	result.SwaggerType = object
@@ -573,6 +638,7 @@ func (t *typeResolver) ResolveSchema(schema *spec.Schema, isAnonymous, isRequire
 	if schema == nil {
 		result.IsInterface = true
 		result.GoType = iface
+		result.PbType = pbAny
 		return
 	}
 
@@ -599,6 +665,7 @@ func (t *typeResolver) ResolveSchema(schema *spec.Schema, isAnonymous, isRequire
 
 	case file, number, integer, boolean:
 		result.GoType = typeMapping[tpe]
+		result.PbType = pbTypeMapping[tpe]
 		result.SwaggerType = tpe
 		t.inferAliasing(&result, schema, isAnonymous, isRequired)
 
@@ -617,6 +684,7 @@ func (t *typeResolver) ResolveSchema(schema *spec.Schema, isAnonymous, isRequire
 
 	case str:
 		result.GoType = str
+		result.PbType = str
 		result.SwaggerType = str
 		t.inferAliasing(&result, schema, isAnonymous, isRequired)
 
@@ -659,6 +727,7 @@ type resolvedType struct {
 	IsBaseType         bool
 
 	GoType        string
+	PbType 		  string
 	AliasedType   string
 	SwaggerType   string
 	SwaggerFormat string

@@ -108,6 +108,7 @@ func newAppGenerator(name string, modelNames, operationIDs []string, opts *GenOp
 		Package:         apiPackage,
 		APIPackage:      apiPackage,
 		ModelsPackage:   mangleName(swag.ToFileName(opts.ModelPackage), "definitions"),
+		GrpcPackage:     mangleName(swag.ToFileName(opts.GrpcPackage), "grpc"),
 		ServerPackage:   mangleName(swag.ToFileName(opts.ServerPackage), "server"),
 		ClientPackage:   mangleName(swag.ToFileName(opts.ClientPackage), "client"),
 		Principal:       opts.Principal,
@@ -126,6 +127,7 @@ type appGenerator struct {
 	Package         string
 	APIPackage      string
 	ModelsPackage   string
+	GrpcPackage	    string
 	ServerPackage   string
 	ClientPackage   string
 	Principal       string
@@ -279,6 +281,15 @@ func (a *appGenerator) GenerateSupport(ap *GenApp) error {
 		importPath,
 	)
 
+	for _, scheme := range app.ExtraSchemes {
+		if scheme == "grpc" {
+			if app.Imports == nil {
+				app.Imports = make(map[string]string)
+			}
+			app.Imports["pb"] = filepath.ToSlash(filepath.Join(baseImport(a.Target), a.GrpcPackage))
+		}
+	}
+
 	if err := a.generateAPIBuilder(app); err != nil {
 		return err
 	}
@@ -298,6 +309,20 @@ func (a *appGenerator) GenerateSupport(ap *GenApp) error {
 	if a.GenOpts == nil || a.GenOpts.IncludeMain {
 		if err := a.generateMain(app); err != nil {
 			return err
+		}
+	}
+
+	for _, scheme := range app.ExtraSchemes {
+		if scheme == "grpc" {
+			if err := a.generateGRPCDefinition(app); err != nil {
+				return err
+			}
+
+			app.DefaultImports = append(app.DefaultImports, "google.golang.org/grpc", "google.golang.org/grpc/credentials")
+
+			if err := a.generateGRPCServeImpl(app); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -370,6 +395,27 @@ func (a *appGenerator) generateDoc(app *GenApp) error {
 	}
 	log.Println("rendered doc template:", app.Package+"."+swag.ToGoName(app.Name))
 	return writeToFile(filepath.Join(a.Target, a.ServerPackage), "Doc", buf.Bytes())
+}
+
+func (a *appGenerator) generateGRPCDefinition(app *GenApp) error {
+	buf := bytes.NewBuffer(nil)
+	appc := *app
+	appc.Package = a.GrpcPackage
+	if err := gRPCDefTemplate.Execute(buf, appc); err != nil {
+		return err
+	}
+	log.Println("rendered gRPC definition template:", appc.Package+"."+swag.ToGoName(appc.Name))
+	return writeFile(filepath.Join(a.Target, appc.Package),
+		swag.ToFileName(swag.ToGoName(appc.Name))+".proto", buf.Bytes())
+}
+
+func (a *appGenerator) generateGRPCServeImpl(app *GenApp) error {
+	buf := bytes.NewBuffer(nil)
+	if err := gRPCServerImplTemplate.Execute(buf, app); err != nil {
+		return err
+	}
+	log.Println("rendered gRPC server template:", app.Package+"."+swag.ToGoName(app.Name))
+	return writeToFile(filepath.Join(a.Target, a.ServerPackage, app.Package), swag.ToGoName(app.Name) + "Grpc", buf.Bytes())
 }
 
 var mediaTypeNames = map[*regexp.Regexp]string{
