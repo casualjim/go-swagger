@@ -32,6 +32,7 @@ import (
 )
 
 /*
+
 Rewrite specification document first:
 
 * anonymous objects
@@ -42,7 +43,6 @@ Rewrite specification document first:
 Find string enums and generate specialized idiomatic enum with them
 
 Every action that happens tracks the path which is a linked list of refs
-
 
 */
 
@@ -246,12 +246,11 @@ func makeGenDefinitionHierarchy(name, pkg, container string, schema spec.Schema,
 		}
 	}
 
-	var defaultImports []string
+	var defaultImports map[string]string
 	if pg.GenSchema.HasValidations {
-		defaultImports = []string{
-			"github.com/go-openapi/errors",
-			"github.com/go-openapi/runtime",
-			"github.com/go-openapi/validate",
+		defaultImports = map[string]string{
+			"runtime":  "github.com/go-openapi/runtime",
+			"validate": "github.com/go-openapi/validate",
 		}
 	}
 	var extras []GenSchema
@@ -264,13 +263,16 @@ func makeGenDefinitionHierarchy(name, pkg, container string, schema spec.Schema,
 		extras = append(extras, pg.ExtraSchemas[k])
 	}
 
-	return &GenDefinition{
-		Package:        mangleName(filepath.Base(pkg), "definitions"),
-		GenSchema:      pg.GenSchema,
-		DependsOn:      pg.Dependencies,
-		DefaultImports: defaultImports,
-		ExtraSchemas:   extras,
-	}, nil
+	gd := &GenDefinition{
+		Package:          mangleName(filepath.Base(pkg), "definitions"),
+		GenSchema:        pg.GenSchema,
+		DependsOn:        pg.Dependencies,
+		DefaultImports:   defaultImports,
+		ExtraSchemas:     extras,
+		IncludeValidator: includeValidator,
+	}
+
+	return gd, nil
 }
 
 type schemaGenContext struct {
@@ -365,6 +367,7 @@ func (sg *schemaGenContext) NewAdditionalItems(schema *spec.Schema) *schemaGenCo
 		pg.Schema = *schema
 	}
 	pg.Required = false
+	// pg.GenSchema.IsAdditionalItems = true
 	return pg
 }
 
@@ -561,7 +564,7 @@ func (sg *schemaGenContext) buildProperties() error {
 		}
 
 		// check if this requires de-anonymizing, if so lift this as a new struct and extra schema
-		tpe, err := sg.TypeResolver.ResolveSchema(&v, true, sg.IsTuple || containsString(sg.Schema.Required, k))
+		tpe, err := sg.TypeResolver.ResolveSchema(&v, true, containsString(sg.Schema.Required, k))
 		if sg.Schema.Discriminator == k {
 			tpe.IsNullable = false
 		}
@@ -956,14 +959,25 @@ func (sg *schemaGenContext) buildArray() error {
 	sg.GenSchema.IsBaseType = elProp.GenSchema.IsBaseType
 	sg.GenSchema.ItemsEnum = elProp.GenSchema.Enum
 	elProp.GenSchema.Suffix = "Items"
-	sg.GenSchema.GoType = "[]" + elProp.GenSchema.GoType
+	if sg.Named {
+		sg.GenSchema.IsAliased = true
+		sg.GenSchema.AliasedType = "[]" + elProp.GenSchema.GoType
+	} else {
+		sg.GenSchema.GoType = "[]" + elProp.GenSchema.GoType
+	}
 
 	// TODO: this is probably not right. Should just respect what type resolvers said
 	nn := elProp.GenSchema.IsNullable
 
 	elProp.GenSchema.IsNullable = tpe.IsNullable && !tpe.HasDiscriminator
 	if nn && !tpe.HasDiscriminator && !tpe.IsPrimitive {
-		sg.GenSchema.GoType = "[]*" + elProp.GenSchema.GoType
+		if sg.Named {
+			sg.GenSchema.IsAliased = true
+			sg.GenSchema.AliasedType = "[]*" + elProp.GenSchema.GoType
+			sg.GenSchema.Name = sg.TypeResolver.goTypeName(sg.GenSchema.Name)
+		} else {
+			sg.GenSchema.GoType = "[]*" + elProp.GenSchema.GoType
+		}
 	}
 
 	schemaCopy := elProp.GenSchema
@@ -971,9 +985,6 @@ func (sg *schemaGenContext) buildArray() error {
 	hv, _ := hasValidations(sg.Schema.Items.Schema, false)
 	schemaCopy.HasValidations = elProp.GenSchema.IsNullable || hv
 	sg.GenSchema.Items = &schemaCopy
-	if sg.Named {
-		sg.GenSchema.AliasedType = sg.GenSchema.GoType
-	}
 	return nil
 }
 
@@ -999,6 +1010,7 @@ func (sg *schemaGenContext) buildItems() error {
 			}
 			sg.MergeResult(elProp, false)
 			elProp.GenSchema.Name = "p" + strconv.Itoa(i)
+			elProp.GenSchema.IsNullable = sg.TypeResolver.IsNullable(&s)
 			sg.GenSchema.Properties = append(sg.GenSchema.Properties, elProp.GenSchema)
 		}
 		return nil
@@ -1150,6 +1162,7 @@ func (sg *schemaGenContext) liftSpecialAllOf() error {
 }
 
 func (sg *schemaGenContext) buildAliased() error {
+	sg.GenSchema.IsAliased = sg.Named
 	if !sg.GenSchema.IsPrimitive && !sg.GenSchema.IsMap && !sg.GenSchema.IsArray && !sg.GenSchema.IsInterface {
 		return nil
 	}
@@ -1162,7 +1175,6 @@ func (sg *schemaGenContext) buildAliased() error {
 			sg.GenSchema.IsNullable = false
 		}
 	}
-
 	if sg.GenSchema.IsInterface {
 		sg.GenSchema.IsAliased = sg.GenSchema.GoType != "interface{}"
 	}
@@ -1171,6 +1183,12 @@ func (sg *schemaGenContext) buildAliased() error {
 	}
 	if sg.GenSchema.IsArray {
 		sg.GenSchema.IsAliased = !strings.HasPrefix(sg.GenSchema.GoType, "[]")
+	}
+	if v, ok := inEasyJSONMap[sg.GenSchema.AliasedType]; ok {
+		sg.GenSchema.JSONIn = v
+	}
+	if v, ok := outEasyJSONMap[sg.GenSchema.AliasedType]; ok {
+		sg.GenSchema.JSONOut = v
 	}
 	return nil
 }
@@ -1199,6 +1217,8 @@ func (sg *schemaGenContext) makeGenSchema() error {
 	sg.GenSchema.ReadOnly = sg.Schema.ReadOnly
 	sg.GenSchema.IncludeValidator = sg.IncludeValidator
 	sg.GenSchema.IncludeModel = sg.IncludeModel
+	sg.GenSchema.Default = sg.Schema.Default
+	sg.GenSchema.IsAliased = sg.Named
 
 	var err error
 	returns, err := sg.shortCircuitNamedRef()
@@ -1236,7 +1256,7 @@ func (sg *schemaGenContext) makeGenSchema() error {
 	sg.GenSchema.resolvedType = tpe
 
 	if Debug {
-		log.Println("gschema nullable", sg.GenSchema.IsNullable)
+		log.Println("gschema nullable", sg.GenSchema.IsNullable, "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
 	}
 	if err := sg.buildAdditionalProperties(); err != nil {
 		return err
@@ -1257,32 +1277,63 @@ func (sg *schemaGenContext) makeGenSchema() error {
 	sg.GenSchema.IsMap = prev.IsMap
 	sg.GenSchema.IsAdditionalProperties = prev.IsAdditionalProperties
 	sg.GenSchema.IsBaseType = sg.GenSchema.HasDiscriminator
+	sg.GenSchema.JSONIn = sg.jsonIn()
+	sg.GenSchema.JSONOut = sg.jsonOut()
 
 	if Debug {
-		log.Println("gschema nnullable", sg.GenSchema.IsNullable)
+		log.Println("tgschema nnullable", sg.GenSchema.IsNullable, "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
 	}
 	if err := sg.buildProperties(); err != nil {
 		return err
+	}
+	if Debug {
+		log.Println("after properties", "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
 	}
 
 	if err := sg.buildXMLName(); err != nil {
 		return err
 	}
+	if Debug {
+		log.Println("after xml name", "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
+	}
 
 	if err := sg.buildAdditionalItems(); err != nil {
 		return err
+	}
+	if Debug {
+		log.Println("after additional items", "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
 	}
 
 	if err := sg.buildItems(); err != nil {
 		return err
 	}
+	if Debug {
+		log.Println("after items", "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
+	}
 
 	if err := sg.buildAliased(); err != nil {
 		return err
 	}
-
+	if Debug {
+		log.Println("after aliased", "goType", sg.GenSchema.GoType, "aliased", sg.GenSchema.AliasedType)
+	}
+	sg.GenSchema.PropLen = noProperties(sg.GenSchema)
 	if Debug {
 		log.Printf("finished gen schema for %q\n", sg.Name)
 	}
 	return nil
+}
+
+func (sg *schemaGenContext) jsonIn() string {
+	if v, ok := inEasyJSONMap[sg.GenSchema.GoType]; ok {
+		return v
+	}
+	return ""
+}
+
+func (sg *schemaGenContext) jsonOut() string {
+	if v, ok := outEasyJSONMap[sg.GenSchema.GoType]; ok {
+		return v
+	}
+	return ""
 }
