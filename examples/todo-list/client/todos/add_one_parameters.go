@@ -62,7 +62,9 @@ for the add one operation typically these are written to a http.Request
 */
 type AddOneParams struct {
 
-	/*Body*/
+	/*Body
+	  In: body
+	*/
 	Body *models.Item
 
 	timeout    time.Duration
@@ -112,6 +114,18 @@ func (o *AddOneParams) WithBody(body *models.Item) *AddOneParams {
 // SetBody adds the body to the add one params
 func (o *AddOneParams) SetBody(body *models.Item) {
 	o.Body = body
+}
+
+// Validate these params
+func (o *AddOneParams) Validate(formats strfmt.Registry) error {
+
+	if o.Body != nil {
+		if err := o.Body.Validate(formats); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

@@ -63,7 +63,8 @@ type DeleteTaskParams struct {
 
 	/*ID
 	  The id of the item
-
+	  Required: true
+	  In: path
 	*/
 	ID int64
 
@@ -114,6 +115,12 @@ func (o *DeleteTaskParams) WithID(id int64) *DeleteTaskParams {
 // SetID adds the id to the delete task params
 func (o *DeleteTaskParams) SetID(id int64) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *DeleteTaskParams) Validate(formats strfmt.Registry) error {
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

@@ -64,17 +64,18 @@ type UploadTaskFileParams struct {
 
 	/*Description
 	  Extra information describing the file
-
+	  In: formData
 	*/
 	Description *string
 	/*File
 	  The file to upload
-
+	  In: formData
 	*/
 	File *os.File
 	/*ID
 	  The id of the item
-
+	  Required: true
+	  In: path
 	*/
 	ID int64
 
@@ -147,6 +148,12 @@ func (o *UploadTaskFileParams) WithID(id int64) *UploadTaskFileParams {
 // SetID adds the id to the upload task file params
 func (o *UploadTaskFileParams) SetID(id int64) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *UploadTaskFileParams) Validate(formats strfmt.Registry) error {
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

@@ -62,9 +62,14 @@ for the update one operation typically these are written to a http.Request
 */
 type UpdateOneParams struct {
 
-	/*Body*/
+	/*Body
+	  In: body
+	*/
 	Body *models.Item
-	/*ID*/
+	/*ID
+	  Required: true
+	  In: path
+	*/
 	ID string
 
 	timeout    time.Duration
@@ -125,6 +130,18 @@ func (o *UpdateOneParams) WithID(id string) *UpdateOneParams {
 // SetID adds the id to the update one params
 func (o *UpdateOneParams) SetID(id string) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *UpdateOneParams) Validate(formats strfmt.Registry) error {
+
+	if o.Body != nil {
+		if err := o.Body.Validate(formats); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

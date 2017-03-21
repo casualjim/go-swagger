@@ -65,12 +65,14 @@ type UpdateTaskParams struct {
 
 	/*Body
 	  The task to update
-
+	  Required: true
+	  In: body
 	*/
 	Body *models.Task
 	/*ID
 	  The id of the item
-
+	  Required: true
+	  In: path
 	*/
 	ID int64
 
@@ -132,6 +134,18 @@ func (o *UpdateTaskParams) WithID(id int64) *UpdateTaskParams {
 // SetID adds the id to the update task params
 func (o *UpdateTaskParams) SetID(id int64) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *UpdateTaskParams) Validate(formats strfmt.Registry) error {
+
+	if o.Body != nil {
+		if err := o.Body.Validate(formats); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

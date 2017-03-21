@@ -63,7 +63,8 @@ type GetTaskDetailsParams struct {
 
 	/*ID
 	  The id of the item
-
+	  Required: true
+	  In: path
 	*/
 	ID int64
 
@@ -114,6 +115,12 @@ func (o *GetTaskDetailsParams) WithID(id int64) *GetTaskDetailsParams {
 // SetID adds the id to the get task details params
 func (o *GetTaskDetailsParams) SetID(id int64) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *GetTaskDetailsParams) Validate(formats strfmt.Registry) error {
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request

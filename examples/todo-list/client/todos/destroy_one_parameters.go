@@ -60,7 +60,10 @@ for the destroy one operation typically these are written to a http.Request
 */
 type DestroyOneParams struct {
 
-	/*ID*/
+	/*ID
+	  Required: true
+	  In: path
+	*/
 	ID string
 
 	timeout    time.Duration
@@ -110,6 +113,12 @@ func (o *DestroyOneParams) WithID(id string) *DestroyOneParams {
 // SetID adds the id to the destroy one params
 func (o *DestroyOneParams) SetID(id string) {
 	o.ID = id
+}
+
+// Validate these params
+func (o *DestroyOneParams) Validate(formats strfmt.Registry) error {
+
+	return nil
 }
 
 // WriteToRequest writes these params to a swagger request
